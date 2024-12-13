@@ -81,9 +81,9 @@ fn energy_computation(dims: &Particles,
       {
         // Fetching particule's position
         // TRANSLATION_VECTORS[i][k], k = {x, y, z}
-        let x_i = dims.x_dim[i] + TRANSLATION_VECTORS[i_sym][0];
-        let y_i = dims.y_dim[i] + TRANSLATION_VECTORS[i_sym][1];
-        let z_i = dims.z_dim[i] + TRANSLATION_VECTORS[i_sym][2];
+        let x_i = dims.x_dim[i];
+        let y_i = dims.y_dim[i];
+        let z_i = dims.z_dim[i];
 
         for j in 0..taille_vect
         {
