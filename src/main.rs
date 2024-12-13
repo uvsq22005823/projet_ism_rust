@@ -27,13 +27,13 @@ struct Particles<'part>
 }
 
 
-// Returns sum of forces
-// Might want to return LJ sum? Not sure what I'm doing lol
-fn forces_computation(dims: &Particles,
+// Returns system's energy
+// Forces are updated during the function
+fn energy_computation(dims: &Particles,
                       forces: &mut Particles, taille_vect: usize) -> f64
 {
-  // let mut lj_somme: f64 = 0.0;  // LJ
-  let mut forces_somme: f64 = 0.0;  // Forces accumalor
+  let mut energy: f64 = 0.0;  // LJ
+  // let mut forces_somme: f64 = 0.0;  // Forces accumalor
   for i in 0..taille_vect
   {
     // Fetching particule's position
@@ -57,7 +57,7 @@ fn forces_computation(dims: &Particles,
       let squared_r_ij: f64 = x_ij * x_ij + y_ij * y_ij + z_ij * z_ij;
       let r_2 : f64 = R_ETOILE_SQ / squared_r_ij;
       let r_4 : f64 = r_2 * r_2;
-      // let r_6 : f64 = r_4 * r_2;  // Unused atm
+      let r_6 : f64 = r_4 * r_2;
       let r_8 : f64 = r_4 * r_4;
       let r_12: f64 = r_8 * r_4;
       let r_14: f64 = r_12 * r_2;
@@ -86,16 +86,26 @@ fn forces_computation(dims: &Particles,
       forces.z_dim[i] += this_force_z;
 
 
-      // Computing LJ term
-      // lj_somme += r_12 - (r_6 + r_6);
+      // Computing Lennard Jones term
+      energy += r_12 - (r_6 + r_6);
     }
-    forces_somme += forces.x_dim[i];
-    forces_somme += forces.y_dim[i];
-    forces_somme += forces.z_dim[i];
   }
 
-  // (lj_somme * EPS_ETOILE) * 4.0
-  forces_somme
+  (energy * EPS_ETOILE) * 4.0
+}
+
+
+// Result should be < precision
+fn compute_forces(forces: &Particles, taille: usize) -> f64
+{
+  let mut somme_forces: f64 = 0.0;
+  for i in 0..taille
+  {
+    somme_forces += forces.x_dim[i];
+    somme_forces += forces.y_dim[i];
+    somme_forces += forces.z_dim[i];
+  }
+  somme_forces
 }
 
 
@@ -230,8 +240,8 @@ fn main()
     z_dim: &mut fz_vector,
   };
 
-  let somme_forces: f64 = forces_computation(&positions, &mut forces, taille);
-  // println!("{:e}", somme_forces);
+  let current_energy: f64 = energy_computation(&positions, &mut forces, taille);
+  let somme_forces = compute_forces(&forces, taille);
   if somme_forces < precision
   {
     println!("Shit is working! Sum of forces = {:e}", somme_forces);
@@ -240,4 +250,5 @@ fn main()
   {
     println!("Shit ain't working >< Sum of forces = {:e}", somme_forces);
   }
+  println!("System's energy is {}", current_energy);
 }
