@@ -4,7 +4,7 @@ use std::io::{self, BufRead};
 
 // NOTE:
 // This is double precision, change it if you change floating point precision!
-const COMPUTER_PRECISION: f64 = 10E-16;
+const COMPUTER_PRECISION: f64 = 1E-16;
 
 // NOTE: there's 1000 particles in total in our dataset
 //    Since it is fix, we could use arrays instead of vectors
@@ -17,6 +17,47 @@ const R_ETOILE_SQ: f64 = R_ETOILE * R_ETOILE;
 const EPS_ETOILE : f64 = 0.2;
 const CONST_LJ_48: f64 = -48.0;
 const CONST_LJ_MULT_EPS_ETOILE: f64 = CONST_LJ_48 * EPS_ETOILE;
+const RAYON_COUPURE: f64 = 10.0;
+const SQUARED_RAYON_COUPURE: f64 = RAYON_COUPURE * RAYON_COUPURE;
+
+// Box's dimensions (for periodical conditions)
+//  L_X = L_Y = L_Z = L (because it's a box I guess?)
+//  Note that the code will only use L
+// const L_X: f64 = 42.0;
+// const L_Y: f64 = 42.0;
+// const L_Z: f64 = 42.0;
+const L: f64 = 42.0;
+const PERIODIC_IMAGES_AMOUNT: usize = 27;
+const TRANSLATION_VECTORS: [[f64; 3]; PERIODIC_IMAGES_AMOUNT] =
+[
+  [0.0,   0.0,   0.0],
+  [0.0,   0.0,    L ],
+  [0.0,   0.0,   -L ],
+  [0.0,    L ,   0.0],
+  [0.0,    L ,    L ],
+  [0.0,    L ,   -L ],
+  [0.0,   -L ,   0.0],
+  [0.0,   -L ,    L ],
+  [0.0,   -L ,   -L ],
+  [ L ,   0.0,   0.0],
+  [ L ,   0.0,    L ],
+  [ L ,   0.0,   -L ],
+  [ L ,    L ,   0.0],
+  [ L ,    L ,    L ],
+  [ L ,    L ,   -L ],
+  [ L ,   -L ,   0.0],
+  [ L ,   -L ,    L ],
+  [ L ,   -L ,   -L ],
+  [-L ,   0.0,   0.0],
+  [-L ,   0.0,    L ],
+  [-L ,   0.0,   -L ],
+  [-L ,    L ,   0.0],
+  [-L ,    L ,    L ],
+  [-L ,    L ,   -L ],
+  [-L ,   -L ,   0.0],
+  [-L ,   -L ,    L ],
+  [-L ,   -L ,   -L ],
+] ;
 
 // SoA
 struct Particles<'part>
@@ -34,61 +75,78 @@ fn energy_computation(dims: &Particles,
 {
   let mut energy: f64 = 0.0;  // LJ
   // let mut forces_somme: f64 = 0.0;  // Forces accumalor
-  for i in 0..taille_vect
+  for i_sym in 0..PERIODIC_IMAGES_AMOUNT
   {
-    // Fetching particule's position
-    let x_i = dims.x_dim[i];
-    let y_i = dims.y_dim[i];
-    let z_i = dims.z_dim[i];
+    for i in 0..taille_vect
+      {
+        // Fetching particule's position
+        // TRANSLATION_VECTORS[i][k], k = {x, y, z}
+        let x_i = dims.x_dim[i] + TRANSLATION_VECTORS[i_sym][0];
+        let y_i = dims.y_dim[i] + TRANSLATION_VECTORS[i_sym][1];
+        let z_i = dims.z_dim[i] + TRANSLATION_VECTORS[i_sym][2];
 
-    for j in i+1..taille_vect
-    {
-      // Fetching other particule's position
-      let x_j = dims.x_dim[j];
-      let y_j = dims.y_dim[j];
-      let z_j = dims.z_dim[j];
+        for j in 0..taille_vect
+        {
+          // Fetching other particule's position
+          let x_j = dims.x_dim[j] + TRANSLATION_VECTORS[i_sym][0];
+          let y_j = dims.y_dim[j] + TRANSLATION_VECTORS[i_sym][1];
+          let z_j = dims.z_dim[j] + TRANSLATION_VECTORS[i_sym][2];
 
-      // Precalculing some stuff that is reused later
-      let x_ij = x_i - x_j;
-      let y_ij = y_i - y_j;
-      let z_ij = z_i - z_j;
+          // Precalculing some stuff that is reused later
+          let x_ij = x_i - x_j;
+          let y_ij = y_i - y_j;
+          let z_ij = z_i - z_j;
 
-      // Main computation
-      let squared_r_ij: f64 = x_ij * x_ij + y_ij * y_ij + z_ij * z_ij;
-      let r_2 : f64 = R_ETOILE_SQ / squared_r_ij;
-      let r_4 : f64 = r_2 * r_2;
-      let r_6 : f64 = r_4 * r_2;
-      let r_8 : f64 = r_4 * r_4;
-      let r_12: f64 = r_8 * r_4;
-      let r_14: f64 = r_12 * r_2;
-      let this_force: f64 = CONST_LJ_MULT_EPS_ETOILE * (r_14 - r_8);
+          // Checking if it is necessary to compute this iteration
+          let squared_r_ij: f64 = x_ij * x_ij + y_ij * y_ij + z_ij * z_ij;
+          if squared_r_ij > SQUARED_RAYON_COUPURE
+          {
+            continue;
+          }
+          if squared_r_ij == 0.0
+          {
+            // panic!("DIVISION BY ZERO");
+            // Let's just skip the iteration for now
+            continue;
+          }
 
-      /*
-      0 1 2 i 3 4 5
+          // Main computation
+          let r_2 : f64 = R_ETOILE_SQ / squared_r_ij;
+          let r_4 : f64 = r_2 * r_2;
+          let r_6 : f64 = r_4 * r_2;
+          let r_8 : f64 = r_4 * r_4;
+          let r_12: f64 = r_8 * r_4;
+          let r_14: f64 = r_12 * r_2;
+          let this_force: f64 = CONST_LJ_MULT_EPS_ETOILE * (r_14 - r_8);
 
-      accumulates in i forces with interaction (i, 3..5)
-      accumulates in 3..5 forces with interaction (3..5, i)
-      */
+          /*
+          0 1 2 i 3 4 5
 
-      // Some small precomputing, might not be useful
-      let this_force_x = this_force * x_ij;
-      let this_force_y = this_force * y_ij;
-      let this_force_z = this_force * z_ij;
+          accumulates in i forces with interaction (i, 3..5)
+          accumulates in 3..5 forces with interaction (3..5, i)
+          */
 
-      // Accumulating forces for other elements with this one
-      forces.x_dim[j] -= this_force_x;
-      forces.y_dim[j] -= this_force_y;
-      forces.z_dim[j] -= this_force_z;
+          // Some small precomputing, might not be useful
+          let this_force_x = this_force * x_ij;
+          let this_force_y = this_force * y_ij;
+          let this_force_z = this_force * z_ij;
 
-      // Accumulating forces for this element with the others
-      forces.x_dim[i] += this_force_x;
-      forces.y_dim[i] += this_force_y;
-      forces.z_dim[i] += this_force_z;
+          // Accumulating forces for other elements with this one
+          forces.x_dim[j] -= this_force_x;
+          forces.y_dim[j] -= this_force_y;
+          forces.z_dim[j] -= this_force_z;
+
+          // Accumulating forces for this element with the others
+          forces.x_dim[i] += this_force_x;
+          forces.y_dim[i] += this_force_y;
+          forces.z_dim[i] += this_force_z;
 
 
-      // Computing Lennard Jones term
-      energy += r_12 - (r_6 + r_6);
-    }
+          // Computing Lennard Jones term
+          energy += r_12 - (r_6 + r_6);
+        }
+      }
+
   }
 
   (energy * EPS_ETOILE) * 4.0
@@ -133,6 +191,8 @@ fn check_input(positions: &Particles, len: usize) -> Option<(usize, usize)>
 
 fn main()
 {
+  // ------------------------------- Initialization-----------------------------
+
   // Checking program call
   let args: Vec<String> = env::args().collect();
   if args.len() != 2
@@ -240,9 +300,18 @@ fn main()
     z_dim: &mut fz_vector,
   };
 
+  // ---------------------------------------------------------------------------
+
+
+
+  // -------------------------------- Computation ------------------------------
+
   let current_energy: f64 = energy_computation(&positions, &mut forces, taille);
   let somme_forces = compute_forces(&forces, taille);
-  if somme_forces < precision
+  print!("Number of elements : {} ; ", taille);
+  print!("Computer precision : {:e} ; ", COMPUTER_PRECISION);
+  println!("Current precision : {:e}", precision);
+  if somme_forces.abs() < precision
   {
     println!("Shit is working! Sum of forces = {:e}", somme_forces);
   }
@@ -251,4 +320,6 @@ fn main()
     println!("Shit ain't working >< Sum of forces = {:e}", somme_forces);
   }
   println!("System's energy is {}", current_energy);
+
+  // ---------------------------------------------------------------------------
 }
