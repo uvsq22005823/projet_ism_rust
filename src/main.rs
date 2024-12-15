@@ -73,14 +73,12 @@ struct Particles<'part>
 fn energy_computation(dims: &Particles,
                       forces: &mut Particles, taille_vect: usize) -> f64
 {
-  let mut energy: f64 = 0.0;  // LJ
-  // let mut forces_somme: f64 = 0.0;  // Forces accumalor
+  let mut energy: f64 = 0.0;  // Lennard Jones term accumulator
   for i_sym in 0..PERIODIC_IMAGES_AMOUNT
   {
     for i in 0..taille_vect
       {
         // Fetching particule's position
-        // TRANSLATION_VECTORS[i][k], k = {x, y, z}
         let x_i = dims.x_dim[i];
         let y_i = dims.y_dim[i];
         let z_i = dims.z_dim[i];
@@ -88,6 +86,7 @@ fn energy_computation(dims: &Particles,
         for j in 0..taille_vect
         {
           // Fetching other particule's position
+          // TRANSLATION_VECTORS[i][k], k = {x, y, z}
           let x_j = dims.x_dim[j] + TRANSLATION_VECTORS[i_sym][0];
           let y_j = dims.y_dim[j] + TRANSLATION_VECTORS[i_sym][1];
           let z_j = dims.z_dim[j] + TRANSLATION_VECTORS[i_sym][2];
@@ -117,8 +116,11 @@ fn energy_computation(dims: &Particles,
           let r_8 : f64 = r_4 * r_4;
           let r_12: f64 = r_8 * r_4;
           let r_14: f64 = r_12 * r_2;
-          let this_force: f64 = CONST_LJ_MULT_EPS_ETOILE * (r_14 - r_8);
+          energy += r_12 - (r_6 + r_6);  // Computing Lennard Jones term
 
+
+          // Updating forces
+          let this_force: f64 = CONST_LJ_MULT_EPS_ETOILE * (r_14 - r_8);
           /*
           0 1 2 i 3 4 5
 
@@ -140,10 +142,6 @@ fn energy_computation(dims: &Particles,
           forces.x_dim[i] += this_force_x;
           forces.y_dim[i] += this_force_y;
           forces.z_dim[i] += this_force_z;
-
-
-          // Computing Lennard Jones term
-          energy += r_12 - (r_6 + r_6);
         }
       }
 
@@ -172,7 +170,6 @@ fn check_input(positions: &Particles, len: usize) -> Option<(usize, usize)>
 {
   // Checking for each particle if there is one on the same coordinates
   //  Two particles cannot physically be at the same place
-  //  (And we need a division by distance, so it'd be embarassing)
   for particule_i in 0..len
   {
     for particule_j in particule_i+1..len
@@ -197,7 +194,7 @@ fn main()
   let args: Vec<String> = env::args().collect();
   if args.len() != 2
   {
-    // It might be possible to factorize that ?
+    // It might be possible to factorize that and put everything in panic! call?
     eprintln!("ERROR: Wrong number of arguments!");
     eprintln!("\tUsage: cargo run --release -- file");
     eprintln!("\tUsage (without cargo): {} file", args[0]);
@@ -210,10 +207,7 @@ fn main()
     Ok(file) => file,
     Err(error) => match error.kind()
     {
-      std::io::ErrorKind::NotFound =>
-      {
-        panic!("File not found!");
-      }
+      std::io::ErrorKind::NotFound => panic!("File not found!"),
       _ => panic!("Unknown error upon opening file."),
     },
   };
@@ -237,7 +231,6 @@ fn main()
   };
 
   // Reading each line and adding value to the correct vector
-  // WARNING: Some check should be added in case multiple particules are identical!
   for line in reader.lines()
   {
     let this_line = match line
@@ -307,17 +300,17 @@ fn main()
   // -------------------------------- Computation ------------------------------
 
   let current_energy: f64 = energy_computation(&positions, &mut forces, taille);
-  let somme_forces = compute_forces(&forces, taille);
+  let somme_forces  : f64 = compute_forces(&forces, taille);
   print!("Number of elements : {} ; ", taille);
   print!("Computer precision : {:e} ; ", COMPUTER_PRECISION);
   println!("Current precision : {:e}", precision);
   if somme_forces.abs() < precision
   {
-    println!("Shit is working! Sum of forces = {:e}", somme_forces);
+    println!("Sum of forces = {:e} (=0)", somme_forces);
   }
   else
   {
-    println!("Shit ain't working >< Sum of forces = {:e}", somme_forces);
+    println!("Sum of forces = {:e} (!=0)", somme_forces);
   }
   println!("System's energy is {}", current_energy);
 
