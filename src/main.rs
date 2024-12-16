@@ -134,9 +134,9 @@ fn energy_computation(dims: &Particles,
           let this_force_z = this_force * z_ij;
 
           // Accumulating forces for other elements with this one
-          forces.x_dim[j] -= this_force_x;
-          forces.y_dim[j] -= this_force_y;
-          forces.z_dim[j] -= this_force_z;
+          // forces.x_dim[j] -= this_force_x;
+          // forces.y_dim[j] -= this_force_y;
+          // forces.z_dim[j] -= this_force_z;
 
           // Accumulating forces for this element with the others
           forces.x_dim[i] += this_force_x;
@@ -147,7 +147,7 @@ fn energy_computation(dims: &Particles,
 
   }
 
-  (energy * EPS_ETOILE) * 4.0
+  (energy * EPS_ETOILE) * 4.0 / 2.0
 }
 
 
