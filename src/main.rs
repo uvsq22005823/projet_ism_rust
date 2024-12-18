@@ -74,7 +74,7 @@ fn energy_computation(dims: &Particles,
                       forces: &mut Particles, taille_vect: usize) -> f64
 {
   let mut energy: f64 = 0.0;  // Lennard Jones term accumulator
-  for i_sym in 0..PERIODIC_IMAGES_AMOUNT
+  for translation_vector in TRANSLATION_VECTORS
   {
     for i in 0..taille_vect
       {
@@ -87,9 +87,9 @@ fn energy_computation(dims: &Particles,
         {
           // Fetching other particule's position
           // TRANSLATION_VECTORS[i][k], k = {x, y, z}
-          let x_j = dims.x_dim[j] + TRANSLATION_VECTORS[i_sym][0];
-          let y_j = dims.y_dim[j] + TRANSLATION_VECTORS[i_sym][1];
-          let z_j = dims.z_dim[j] + TRANSLATION_VECTORS[i_sym][2];
+          let x_j = dims.x_dim[j] + translation_vector[0];
+          let y_j = dims.y_dim[j] + translation_vector[1];
+          let z_j = dims.z_dim[j] + translation_vector[2];
 
           // Precalculing some stuff that is reused later
           let x_ij = x_i - x_j;
