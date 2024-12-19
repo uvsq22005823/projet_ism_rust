@@ -19,6 +19,7 @@ const CONST_LJ_48: f64 = -48.0;
 const CONST_LJ_MULT_EPS_ETOILE: f64 = CONST_LJ_48 * EPS_ETOILE;
 const RAYON_COUPURE: f64 = 10.0;
 const SQUARED_RAYON_COUPURE: f64 = RAYON_COUPURE * RAYON_COUPURE;
+const R_ETOILE_ENERGY_PRECOMPUTED: f64 = EPS_ETOILE * 4.0 / 2.0;
 
 // Box's dimensions (for periodical conditions)
 //  L_X = L_Y = L_Z = L (because it's a box I guess?)
@@ -147,7 +148,7 @@ fn energy_computation(dims: &Particles,
 
   }
 
-  (energy * EPS_ETOILE) * 4.0 / 2.0
+  energy * R_ETOILE_ENERGY_PRECOMPUTED
 }
 
 
