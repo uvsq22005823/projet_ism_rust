@@ -1,6 +1,7 @@
 use std::env;
 use std::fs::File;
 use std::io::{self, BufRead};
+use rand::{Rng, SeedableRng};
 
 // NOTE:
 // This is double precision, change it if you change floating point precision!
@@ -60,12 +61,48 @@ const TRANSLATION_VECTORS: [[f64; 3]; PERIODIC_IMAGES_AMOUNT] =
   [-L ,   -L ,   -L ],
 ] ;
 
+// Constants for Verlet algorithm
+// const DT: f64 = 1.0;
+const SIMULATION_TEMPERATURE: f64 = 300.0;
+const CONVERSION_FORCE: f64 = -0.0001 * 4.186;
+const PARTICULE_MASS: f64 = 18.0;
+const CONSTANTE_R: f64 = 0.00199;
+// Precomputing some stuff for temperature_computation function
+const PRE_CONVERSION_FORCE: f64 = 1.0 / (2.0 * CONVERSION_FORCE);
+
 // SoA
 struct Particles<'part>
 {
   x_dim: &'part mut Vec<f64>,
   y_dim: &'part mut Vec<f64>,
   z_dim: &'part mut Vec<f64>
+}
+
+
+// Computes system's kinetic energy
+// Returns temperature if return_temp is true and kinetic_energy if it is false
+fn temperature_computation(cin_mov: &mut Particles, taille_vect: usize,
+                           pre_temperature: f64, return_temp: bool) -> f64
+{
+  let mut kinetic_energy: f64 = 0.0;
+
+  // Compute system's kinetic energy
+  for i in 0..taille_vect
+  {
+    let mut partial_sum: f64 = 0.0;
+    partial_sum += cin_mov.x_dim[i] * cin_mov.x_dim[i];
+    partial_sum += cin_mov.y_dim[i] * cin_mov.y_dim[i];
+    partial_sum += cin_mov.z_dim[i] * cin_mov.z_dim[i];
+    partial_sum /= PARTICULE_MASS;  // TODO: test * 1/PARTICULE_MASS
+    kinetic_energy += partial_sum;
+  }
+  kinetic_energy  *= PRE_CONVERSION_FORCE;
+
+  match return_temp
+  {
+    true => pre_temperature * kinetic_energy,
+    false => kinetic_energy
+  }
 }
 
 
@@ -78,74 +115,73 @@ fn energy_computation(dims: &Particles,
   for translation_vector in TRANSLATION_VECTORS
   {
     for i in 0..taille_vect
+    {
+      // Fetching particule's position
+      let x_i = dims.x_dim[i];
+      let y_i = dims.y_dim[i];
+      let z_i = dims.z_dim[i];
+
+      for j in 0..taille_vect
       {
-        // Fetching particule's position
-        let x_i = dims.x_dim[i];
-        let y_i = dims.y_dim[i];
-        let z_i = dims.z_dim[i];
+        // Fetching other particule's position
+        // TRANSLATION_VECTORS[i][k], k = {x, y, z}
+        let x_j = dims.x_dim[j] + translation_vector[0];
+        let y_j = dims.y_dim[j] + translation_vector[1];
+        let z_j = dims.z_dim[j] + translation_vector[2];
 
-        for j in 0..taille_vect
+        // Precalculing some stuff that is reused later
+        let x_ij = x_i - x_j;
+        let y_ij = y_i - y_j;
+        let z_ij = z_i - z_j;
+
+        // Checking if it is necessary to compute this iteration
+        let squared_r_ij: f64 = x_ij * x_ij + y_ij * y_ij + z_ij * z_ij;
+        if squared_r_ij > SQUARED_RAYON_COUPURE
         {
-          // Fetching other particule's position
-          // TRANSLATION_VECTORS[i][k], k = {x, y, z}
-          let x_j = dims.x_dim[j] + translation_vector[0];
-          let y_j = dims.y_dim[j] + translation_vector[1];
-          let z_j = dims.z_dim[j] + translation_vector[2];
-
-          // Precalculing some stuff that is reused later
-          let x_ij = x_i - x_j;
-          let y_ij = y_i - y_j;
-          let z_ij = z_i - z_j;
-
-          // Checking if it is necessary to compute this iteration
-          let squared_r_ij: f64 = x_ij * x_ij + y_ij * y_ij + z_ij * z_ij;
-          if squared_r_ij > SQUARED_RAYON_COUPURE
-          {
-            continue;
-          }
-          if squared_r_ij == 0.0
-          {
-            // panic!("DIVISION BY ZERO");
-            // Let's just skip the iteration for now
-            continue;
-          }
-
-          // Main computation
-          let r_2 : f64 = R_ETOILE_SQ / squared_r_ij;
-          let r_4 : f64 = r_2 * r_2;
-          let r_6 : f64 = r_4 * r_2;
-          let r_8 : f64 = r_4 * r_4;
-          let r_12: f64 = r_8 * r_4;
-          let r_14: f64 = r_12 * r_2;
-          energy += r_12 - (r_6 + r_6);  // Computing Lennard Jones term
-
-
-          // Updating forces
-          let this_force: f64 = CONST_LJ_MULT_EPS_ETOILE * (r_14 - r_8);
-          /*
-          0 1 2 i 3 4 5
-
-          accumulates in i forces with interaction (i, 3..5)
-          accumulates in 3..5 forces with interaction (3..5, i)
-          */
-
-          // Some small precomputing, might not be useful
-          let this_force_x = this_force * x_ij;
-          let this_force_y = this_force * y_ij;
-          let this_force_z = this_force * z_ij;
-
-          // Accumulating forces for other elements with this one
-          // forces.x_dim[j] -= this_force_x;
-          // forces.y_dim[j] -= this_force_y;
-          // forces.z_dim[j] -= this_force_z;
-
-          // Accumulating forces for this element with the others
-          forces.x_dim[i] += this_force_x;
-          forces.y_dim[i] += this_force_y;
-          forces.z_dim[i] += this_force_z;
+          continue;
         }
-      }
+        if squared_r_ij == 0.0
+        {
+          // panic!("DIVISION BY ZERO");
+          // Let's just skip the iteration for now
+          continue;
+        }
 
+        // Main computation
+        let r_2 : f64 = R_ETOILE_SQ / squared_r_ij;
+        let r_4 : f64 = r_2 * r_2;
+        let r_6 : f64 = r_4 * r_2;
+        let r_8 : f64 = r_4 * r_4;
+        let r_12: f64 = r_8 * r_4;
+        let r_14: f64 = r_12 * r_2;
+        energy += r_12 - (r_6 + r_6);  // Computing Lennard Jones term
+
+
+        // Updating forces
+        let this_force: f64 = CONST_LJ_MULT_EPS_ETOILE * (r_14 - r_8);
+        /*
+        0 1 2 i 3 4 5
+
+        accumulates in i forces with interaction (i, 3..5)
+        accumulates in 3..5 forces with interaction (3..5, i)
+        */
+
+        // Some small precomputing, might not be useful
+        let this_force_x = this_force * x_ij;
+        let this_force_y = this_force * y_ij;
+        let this_force_z = this_force * z_ij;
+
+        // Accumulating forces for other elements with this one
+        // forces.x_dim[j] -= this_force_x;
+        // forces.y_dim[j] -= this_force_y;
+        // forces.z_dim[j] -= this_force_z;
+
+        // Accumulating forces for this element with the others
+        forces.x_dim[i] += this_force_x;
+        forces.y_dim[i] += this_force_y;
+        forces.z_dim[i] += this_force_z;
+      }
+    }
   }
 
   energy * R_ETOILE_ENERGY_PRECOMPUTED
@@ -193,12 +229,12 @@ fn main()
 
   // Checking program call
   let args: Vec<String> = env::args().collect();
-  if args.len() != 2
+  if args.len() != 2 && args.len() != 3
   {
     // It might be possible to factorize that and put everything in panic! call?
     eprintln!("ERROR: Wrong number of arguments!");
-    eprintln!("\tUsage: cargo run --release -- file");
-    eprintln!("\tUsage (without cargo): {} file", args[0]);
+    eprintln!("\tUsage: cargo run --release -- file [seed]");
+    eprintln!("\tUsage (without cargo): {} file [seed]", args[0]);
     panic!("Incorrect call to program.");
   }
   // Attempting to open input file
@@ -213,6 +249,23 @@ fn main()
     },
   };
   let mut reader = io::BufReader::new(file);
+
+  // Checking seed if one
+  let mut seed: u64 = 0;  // Default seed is 0, might change that later on
+  if args.len() == 3
+  {
+    match args[2].parse()
+    {
+      Ok(value) => seed = value,
+      Err(_e) => eprintln!("Error: {} is not a valid seed, using default seed.",
+                           args[2])
+    }
+  }
+  println!("Starting program using seed = {}", seed);
+
+  // Init PRNG
+  let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(seed);
+  // println!("Random f64: {}", rng.random::<f64>());
 
   // Skipping first line 'cause it's not important
   // WARNING: it might be better to really define what commented lines should be
@@ -293,6 +346,62 @@ fn main()
     y_dim: &mut fy_vector,
     z_dim: &mut fz_vector,
   };
+
+  // Creating kinetic movement vectors
+  let mut px_vector: Vec<f64> = Vec::with_capacity(taille);
+  let mut py_vector: Vec<f64> = Vec::with_capacity(taille);
+  let mut pz_vector: Vec<f64> = Vec::with_capacity(taille);
+
+  // Initializing kinetic movement vectors
+  for _ in 0..taille
+  {
+    // Initializing values with random number
+    // Should be fonction_signe(1.0,0.5-s)*c but what is fonction_signe???
+    px_vector.push(rng.random::<f64>());
+    py_vector.push(rng.random::<f64>());
+    pz_vector.push(rng.random::<f64>());
+  }
+
+  let mut cin_mov = Particles
+  {
+    x_dim: &mut px_vector,
+    y_dim: &mut py_vector,
+    z_dim: &mut pz_vector,
+  };
+
+  let freedom_degree : f64 = 3.0 * (taille as f64) - 3.0;
+  let pre_temperature: f64 = 1.0 / (freedom_degree * CONSTANTE_R);
+  // Ratio for updating cin_mov vectors
+  let pre_ratio: f64 = freedom_degree * CONSTANTE_R * SIMULATION_TEMPERATURE;
+
+  // Update kinetic movement
+  let kinetic_energy = temperature_computation(&mut cin_mov, taille,
+                                               pre_temperature, false);
+  let rapport: f64 = pre_ratio / kinetic_energy;
+  let mut sum_x: f64 = 0.0;
+  let mut sum_y: f64 = 0.0;
+  let mut sum_z: f64 = 0.0;
+  for i in 0..taille
+  {
+    // Updating kinetic movement and computing their centers
+    cin_mov.x_dim[i] *= rapport;
+    sum_x += cin_mov.x_dim[i];
+    cin_mov.y_dim[i] *= rapport;
+    sum_y += cin_mov.y_dim[i];
+    cin_mov.z_dim[i] *= rapport;
+    sum_z += cin_mov.z_dim[i];
+  }
+  // Computing correction factors
+  sum_x /= taille as f64;
+  sum_y /= taille as f64;
+  sum_z /= taille as f64;
+  // Re-updating kinetic movement according to correction factor
+  for i in 0..taille
+  {
+    cin_mov.x_dim[i] = (cin_mov.x_dim[i] - sum_x) * rapport;
+    cin_mov.y_dim[i] = (cin_mov.y_dim[i] - sum_y) * rapport;
+    cin_mov.z_dim[i] = (cin_mov.z_dim[i] - sum_z) * rapport;
+  }
 
   // ---------------------------------------------------------------------------
 
