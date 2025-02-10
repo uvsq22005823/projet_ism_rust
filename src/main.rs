@@ -79,6 +79,17 @@ struct Particles<'part>
 }
 
 
+// Equivalent of the SIGN function in Fortran
+fn signe(a: f64, b: f64) -> f64
+{
+  match b >= 0.0
+  {
+    true  =>  a.abs(),
+    false => -a.abs(),
+  }
+}
+
+
 // Computes system's kinetic energy
 // Returns temperature if return_temp is true and kinetic_energy if it is false
 fn temperature_computation(cin_mov: &mut Particles, taille_vect: usize,
@@ -356,10 +367,12 @@ fn main()
   for _ in 0..taille
   {
     // Initializing values with random number
-    // Should be fonction_signe(1.0,0.5-s)*c but what is fonction_signe???
-    px_vector.push(rng.random::<f64>());
-    py_vector.push(rng.random::<f64>());
-    pz_vector.push(rng.random::<f64>());
+    px_vector.push(signe(1.0, 0.5 - rng.random::<f64>())
+                   * rng.random::<f64>());
+    py_vector.push(signe(1.0, 0.5 - rng.random::<f64>())
+                   * rng.random::<f64>());
+    pz_vector.push(signe(1.0, 0.5 - rng.random::<f64>())
+                   * rng.random::<f64>());
   }
 
   let mut cin_mov = Particles
@@ -416,13 +429,13 @@ fn main()
   println!("Current precision : {:e}", precision);
   if somme_forces.abs() < precision
   {
-    println!("Sum of forces = {:e} (=0)", somme_forces);
+    println!("Sum of forces = {:e} (==0)", somme_forces);
   }
   else
   {
     println!("Sum of forces = {:e} (!=0)", somme_forces);
   }
-  println!("System's energy is {}", current_energy);
+  println!("System energy is {}", current_energy);
 
   // ---------------------------------------------------------------------------
 }
